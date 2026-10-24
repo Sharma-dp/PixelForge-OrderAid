@@ -1,0 +1,139 @@
+
+from datetime import datetime, timezone
+from uuid import uuid4
+
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+
+app = FastAPI(
+    title="OrderAid API",
+    description="Backend API for the OrderAid order resolution platform.",
+    version="0.2.0",
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+# Temporary in-memory storage for development.
+# Cases will reset whenever the backend restarts.
+cases = {}
+
+
+def current_time():
+    return datetime.now(timezone.utc).isoformat()
+
+
+@app.get("/")
+def root():
+    return {
+        "name": "OrderAid API",
+        "message": "OrderAid backend is running.",
+        "mode": "development",
+    }
+
+
+@app.get("/api/health")
+def health_check():
+    return {"status": "ok", "service": "orderaid-api"}
+
+
+@app.get("/api/cases")
+def get_cases():
+    return list(cases.values())
+
+
+@app.get("/api/cases/{case_id}")
+def get_case(case_id: str):
+    case = cases.get(case_id)
+    if not case:
+        raise HTTPException(status_code=404, detail="Case not found")
+    return case
+
+
+
+@app.post("/api/investigate")
+async def investigate_case(
+    problem_description: str = Form(...),
+    retailer: str = Form(...),
+    order_id: str = Form(""),
+    item: str = Form(""),
+    amount: str = Form(""),
+    issue_type: str = Form("Other"),
+    requested_resolution: str = Form("Help me decide"),
+    evidence: list[UploadFile] = File(default=[]),
+):
+    case_id = f"OA-{uuid4().hex[:8].upper()}"
+
+    case = {
+        "case_id": case_id,
+        "retailer": retailer,
+        "item": item or "Order item",
+        "order_id": order_id,
+        "issue": problem_description,
+        "issue_type": issue_type,
+        "requested_resolution": requested_resolution,
+        "amount": (
+            f"₹{float(amount):,.2f}" if amount.strip() else "Not provided"
+        ),
+        "status": "Investigating",
+        "updated_at": current_time(),
+        "demo": False,
+        "evidence": [
+            {
+                "filename": file.filename,
+                "content_type": file.content_type,
+            }
+            for file in evidence
+        ],
+        "investigation": {
+            "status": "not_started",
+            "message": (
+                "Case created. AI policy investigation is not "
+                "connected yet."
+            ),
+        },
+    }
+
+    cases[case_id] = case
+    return case
+
+
+
+class ApprovalRequest(BaseModel):
+    case_id: str
+    approved: bool
+    otp: str | None = None
+
+
+@app.post("/api/approve")
+def approve_case(request: ApprovalRequest):
+    case = cases.get(request.case_id)
+
+    if not case:
+        raise HTTPException(status_code=404, detail="Case not found")
+
+    if not request.approved:
+        case["status"] = "Approval declined"
+        case["updated_at"] = current_time()
+        return {
+            "message": "Approval declined. No external action was taken.",
+            "case": case,
+        }
+
+    raise HTTPException(
+        status_code=409,
+        detail=(
+            "No verified resolution draft is available yet. "
+            "No external action was taken."
+        ),
+    )

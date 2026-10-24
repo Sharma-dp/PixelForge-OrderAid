@@ -1,0 +1,10 @@
+
+fastapi
+uvicorn[standard]
+psycopg[binary]
+pydantic-settings
+python-multipart
+httpx
+openai
+sqlalchemy>=2.0
+alembic>=1.13
