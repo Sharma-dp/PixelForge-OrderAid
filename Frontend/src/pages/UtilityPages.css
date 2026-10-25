@@ -1,0 +1,52 @@
+/* Polished utility pages: Activity, Evidence and Settings */
+.activity-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 8px 24px;
+}
+.activity-item {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  padding: 22px 4px;
+  border-bottom: 1px solid #edf0ec;
+}
+.activity-item:last-child { border-bottom: 0; }
+.activity-icon {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  background: #eaf2e9;
+  color: #285b40;
+}
+.activity-item strong { display:block; color:#26352b; font-size:14px; line-height:1.5; }
+.activity-item p { margin:6px 0; color:#4f5c53; font-size:13px; line-height:1.6; }
+.activity-item small { color:#879188; font-size:11px; }
+.activity-item a { display:inline-flex; align-items:center; gap:6px; color:#285b40; font-size:12px; font-weight:700; text-decoration:none; white-space:nowrap; }
+.activity-item a:hover { text-decoration:underline; }
+.settings-card { padding:28px; max-width:850px; }
+.settings-heading { display:flex; align-items:flex-start; gap:15px; padding-bottom:23px; margin-bottom:8px; border-bottom:1px solid #edf0ec; }
+.settings-heading > svg { flex-shrink:0; color:#285b40; background:#eaf2e9; box-sizing:content-box; padding:11px; border-radius:12px; }
+.settings-heading h2 { margin:2px 0 7px; color:#26352b; font-size:19px; }
+.settings-heading p { margin:0; color:#7d887f; font-size:13px; line-height:1.6; }
+.settings-row { display:flex; align-items:center; justify-content:space-between; gap:20px; padding:17px 4px; border-bottom:1px solid #edf0ec; }
+.settings-row span { color:#78847b; font-size:13px; }
+.settings-row strong { color:#2e3931; font-size:13px; font-weight:700; text-align:right; overflow-wrap:anywhere; }
+.settings-card .secondary-button { margin-top:22px; min-height:40px; padding:10px 16px; }
+.empty-state { padding:42px 24px; }
+.empty-state h3 { margin:18px 0 8px; font-size:20px; color:#26352b; }
+.empty-state p { max-width:520px; margin:0 auto 20px; color:#78847b; font-size:13px; line-height:1.7; }
+.content-card { overflow:hidden; }
+@media (max-width:680px) {
+ .activity-list { padding:4px 16px; }
+ .activity-item { grid-template-columns:36px minmax(0,1fr); gap:12px; padding:18px 0; }
+ .activity-icon { width:36px; height:36px; }
+ .activity-item a { grid-column:2; justify-self:start; }
+ .settings-card { padding:20px; }
+ .settings-row { align-items:flex-start; flex-direction:column; gap:7px; }
+ .settings-row strong { text-align:left; }
+}

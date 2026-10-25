@@ -1,0 +1,44 @@
+
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  max-width: 100%;
+  padding: 6px 9px;
+  border-radius: 20px;
+  color: #536c58;
+  background: #edf3ed;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.status-badge i {
+  width: 6px;
+  height: 6px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.status-investigating,
+.status-in-progress {
+  color: #50738b;
+  background: #edf4f8;
+}
+
+.status-awaiting-approval {
+  color: #967128;
+  background: #fbf4df;
+}
+
+.status-resolved {
+  color: #2c7b5d;
+  background: #e7f4ec;
+}
+
+.status-default {
+  color: #69746b;
+  background: #f0f2ef;
+}
