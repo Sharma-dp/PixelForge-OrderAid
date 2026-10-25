@@ -30,17 +30,28 @@ class User(Base):
     id: Mapped[str] = mapped_column(
         String(36), primary_key=True, default=new_id
     )
+
     email: Mapped[str] = mapped_column(
-        String(320), unique=True, index=True
+        String(320), unique=True, index=True, nullable=False
     )
-    full_name: Mapped[str | None] = mapped_column(String(200))
+
+    full_name: Mapped[str | None] = mapped_column(
+        String(200), nullable=True
+    )
+
+    # Store only a secure password hash, never the plain-text password.
+    password_hash: Mapped[str] = mapped_column(
+        String(255), nullable=False
+    )
+
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utc_now
+        DateTime(timezone=True), default=utc_now, nullable=False
     )
 
     cases: Mapped[list["OrderCase"]] = relationship(
         back_populates="user"
     )
+
 
 
 class Retailer(Base):
