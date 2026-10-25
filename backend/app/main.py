@@ -1,7 +1,9 @@
+
 from app.database import SessionLocal
 from app.tinyfish_client import search_tinyfish, run_tinyfish_agent
 from datetime import datetime, timezone
 from uuid import uuid4
+from urllib.parse import urlparse
 import base64
 import hashlib
 import hmac
@@ -33,19 +35,20 @@ app = FastAPI(
     version="0.3.0",
 )
 
+# CORS: allow the Vite frontend on ports 5173 and 5174.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:5173",
         "http://127.0.0.1:5173",
+        "http://localhost:5174",
+        "http://127.0.0.1:5174",
     ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-
-# Passwords are never stored in plain text.
 password_hasher = PasswordHash.recommended()
 
 
@@ -65,12 +68,13 @@ def _base64url(data: bytes) -> str:
 
 
 def create_access_token(user_id: str, email: str) -> str:
-    """Create a short-lived HMAC-signed access token using only Python's stdlib."""
+    """Create a short-lived HMAC-signed access token."""
     secret = os.getenv("ORDERAID_AUTH_SECRET", "").strip()
+
     if len(secret) < 32:
         raise HTTPException(
             status_code=500,
-            detail="Server authentication secret is not configured. Set ORDERAID_AUTH_SECRET in backend/.env.",
+            detail="Server authentication secret is not configured.",
         )
 
     now = int(time.time())
@@ -81,14 +85,19 @@ def create_access_token(user_id: str, email: str) -> str:
         "iat": now,
         "exp": now + 3600,
     }
+
     signing_input = (
         _base64url(json.dumps(header, separators=(",", ":")).encode("utf-8"))
         + "."
         + _base64url(json.dumps(payload, separators=(",", ":")).encode("utf-8"))
     )
+
     signature = hmac.new(
-        secret.encode("utf-8"), signing_input.encode("ascii"), hashlib.sha256
+        secret.encode("utf-8"),
+        signing_input.encode("ascii"),
+        hashlib.sha256,
     ).digest()
+
     return signing_input + "." + _base64url(signature)
 
 
@@ -104,15 +113,11 @@ def signup(payload: SignupRequest):
     full_name = payload.full_name.strip()
 
     if not full_name:
-        raise HTTPException(
-            status_code=422,
-            detail="Full name is required.",
-        )
+        raise HTTPException(status_code=422, detail="Full name is required.")
 
     with SessionLocal() as db:
-        existing_user = db.scalar(
-            select(User).where(User.email == email)
-        )
+        existing_user = db.scalar(select(User).where(User.email == email))
+
         if existing_user:
             raise HTTPException(
                 status_code=409,
@@ -157,7 +162,10 @@ def login(payload: LoginRequest):
 
     with SessionLocal() as db:
         user = db.scalar(select(User).where(User.email == email))
-        if user is None or not verify_password(payload.password, user.password_hash):
+
+        if user is None or not verify_password(
+            payload.password, user.password_hash
+        ):
             raise HTTPException(
                 status_code=401,
                 detail="Invalid email or password.",
@@ -165,6 +173,7 @@ def login(payload: LoginRequest):
             )
 
         token = create_access_token(user.id, user.email)
+
         return {
             "access_token": token,
             "token_type": "bearer",
@@ -244,6 +253,7 @@ def get_cases():
         cases = db.scalars(
             select(OrderCase).order_by(OrderCase.created_at.desc())
         ).all()
+
         return [case_to_dict(case, db) for case in cases]
 
 
@@ -259,6 +269,7 @@ def get_case(case_id: str):
 
         return case_to_dict(case, db)
 
+
 @app.post("/api/investigate")
 async def investigate_case(
     problem_description: str = Form(...),
@@ -270,9 +281,17 @@ async def investigate_case(
     requested_resolution: str = Form("Help me decide"),
     evidence: list[UploadFile] = File(default=[]),
 ):
-    from urllib.parse import urlparse
-
     amount_value = amount.strip() or None
+    retailer_name = retailer.strip()
+
+    if not retailer_name:
+        raise HTTPException(status_code=422, detail="Retailer is required.")
+
+    if not problem_description.strip():
+        raise HTTPException(
+            status_code=422,
+            detail="Problem description is required.",
+        )
 
     if amount_value:
         try:
@@ -287,10 +306,9 @@ async def investigate_case(
 
     case_number = f"OA-{uuid4().hex[:8].upper()}"
 
-    # Save the case before calling TinyFish.
+    # Save the case before attempting external policy research.
     with SessionLocal() as db:
         try:
-            retailer_name = retailer.strip()
             retailer_record = db.scalar(
                 select(Retailer).where(Retailer.name == retailer_name)
             )
@@ -356,7 +374,7 @@ async def investigate_case(
                 detail="Could not create the case because of a database conflict.",
             )
 
-    # Run the external research after the case has been committed.
+    # Research only public policy pages; never log in or submit transactions.
     try:
         search_result = await search_tinyfish(
             f"{retailer_name} official return refund policy"
@@ -366,7 +384,6 @@ async def investigate_case(
         if not isinstance(results, list):
             results = []
 
-        # Select a result whose hostname appears related to the retailer.
         retailer_token = "".join(
             char.lower() for char in retailer_name if char.isalnum()
         )
@@ -377,13 +394,15 @@ async def investigate_case(
                 continue
 
             candidate = result.get("url", "")
-            hostname = urlparse(candidate).hostname or ""
+            parsed_url = urlparse(candidate)
             hostname_token = "".join(
-                char.lower() for char in hostname if char.isalnum()
+                char.lower()
+                for char in (parsed_url.hostname or "")
+                if char.isalnum()
             )
 
             if (
-                urlparse(candidate).scheme == "https"
+                parsed_url.scheme == "https"
                 and retailer_token
                 and retailer_token in hostname_token
             ):
@@ -392,39 +411,36 @@ async def investigate_case(
 
         if not selected_url:
             raise RuntimeError(
-                "Search did not return a clearly matching HTTPS retailer domain. "
-                "No browser investigation was started."
+                "No clearly matching HTTPS retailer domain was found."
             )
 
         agent_result = await run_tinyfish_agent(
             url=selected_url,
             goal=(
                 f"Research the public return and refund policy for {retailer_name}. "
-                f"The customer's issue is: {problem_description.strip()}. "
-                f"The item is: {item.strip() or 'not specified'}. "
-                f"The issue type is: {issue_type}. "
-                "Read the policy and return a JSON object containing "
-                "policy_title, key_return_conditions, refund_conditions, "
-                "and source_url. Do not log in, use customer accounts, "
-                "interact with forms, or initiate any transaction. "
-                "Report only information supported by the page."
+                f"Customer issue: {problem_description.strip()}. "
+                f"Item: {item.strip() or 'not specified'}. "
+                f"Issue type: {issue_type}. "
+                "Return a JSON object containing policy_title, "
+                "key_return_conditions, refund_conditions, and source_url. "
+                "Do not log in, use customer accounts, submit forms, "
+                "or initiate transactions. Report only page-supported facts."
             ),
         )
 
         result_data = agent_result.get("result")
-
         if not isinstance(result_data, dict):
-            raise RuntimeError(
-                "TinyFish completed but returned no structured policy object."
-            )
+            raise RuntimeError("TinyFish returned no structured policy object.")
 
-        # Use the actual URL visited as the source if the result's URL
-        # is missing or is not an absolute HTTPS URL.
         source_url = result_data.get("source_url")
+        parsed_source = (
+            urlparse(source_url) if isinstance(source_url, str) else None
+        )
+
         if (
-            not isinstance(source_url, str)
-            or urlparse(source_url).scheme != "https"
-            or not urlparse(source_url).hostname
+            parsed_source is None
+            or parsed_source.scheme != "https"
+            or not parsed_source.hostname
         ):
             source_url = selected_url
 
@@ -453,7 +469,6 @@ async def investigate_case(
         error_message = None
 
     except Exception as exc:
-        # Preserve the case and record the failed investigation.
         status = "failed"
         summary = (
             "The case was saved, but TinyFish policy research did not complete."
@@ -470,7 +485,10 @@ async def investigate_case(
         if investigation is None or case is None:
             raise HTTPException(
                 status_code=500,
-                detail="Case was saved, but its investigation record could not be loaded.",
+                detail=(
+                    "Case was saved, but its investigation record "
+                    "could not be loaded."
+                ),
             )
 
         investigation.status = status
@@ -516,9 +534,7 @@ class ApprovalRequest(BaseModel):
 def approve_case(request: ApprovalRequest):
     with SessionLocal() as db:
         case = db.scalar(
-            select(OrderCase).where(
-                OrderCase.case_number == request.case_id
-            )
+            select(OrderCase).where(OrderCase.case_number == request.case_id)
         )
 
         if not case:
